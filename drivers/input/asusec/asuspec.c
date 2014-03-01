@@ -27,6 +27,7 @@
 #include "elan_i2c_asus.h"
 #include <asm/mach-types.h>
 #include <linux/statfs.h>
+#include <linux/pm_runtime.h>
 
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
@@ -94,7 +95,7 @@ static ssize_t asuspec_switch_name(struct switch_dev *sdev, char *buf);
 static ssize_t asuspec_switch_state(struct switch_dev *sdev, char *buf);
 static ssize_t apower_switch_name(struct switch_dev *sdev, char *buf);
 static ssize_t apower_switch_state(struct switch_dev *sdev, char *buf);
-static int asuspec_suspend(struct i2c_client *client, pm_message_t mesg);
+static int asuspec_suspend(struct i2c_client *client);
 static int asuspec_resume(struct i2c_client *client);
 static int asuspec_open(struct inode *inode, struct file *flip);
 static int asuspec_release(struct inode *inode, struct file *flip);
@@ -216,10 +217,9 @@ struct file_operations asuspec_fops = {
 	.release = asuspec_release,
 };
 
-static struct dev_pm_ops asuspec_dev_pm_ops ={
-	.suspend = asuspec_suspend,
-	.resume = asuspec_resume,
-
+static struct dev_pm_ops asuspec_dev_pm_ops = {
+	.runtime_suspend = asuspec_suspend,
+	.runtime_resume = asuspec_resume,
 };
 
 static struct i2c_driver asuspec_driver = {
@@ -3221,8 +3221,15 @@ static int __devexit asuspec_remove(struct i2c_client *client)
 {
 	struct asuspec_chip *chip = i2c_get_clientdata(client);
 
+	pm_runtime_get_sync(&client->dev);
+
 	dev_dbg(&client->dev, "%s()\n", __func__);
 	input_unregister_device(chip->indev);
+
+	pm_runtime_disable(&client->dev);
+	pm_runtime_set_suspended(&client->dev);
+	pm_runtime_put_noidle(&client->dev);
+
 	kfree(chip);
 	return 0;
 }
@@ -3544,7 +3551,7 @@ static ssize_t asuspec_show_lid_status(struct device *class,struct device_attrib
 	return sprintf(buf, "%d\n", gpio_get_value(asuspec_hall_sensor_gpio));
 }
 
-static int asuspec_suspend(struct i2c_client *client, pm_message_t mesg){
+static int asuspec_suspend(struct i2c_client *client){
 	printk("asuspec_suspend+\n");
 	if(machine_is_mozart())
 		cancel_delayed_work_sync(&ec_chip->asusdec_dock_init_work);
