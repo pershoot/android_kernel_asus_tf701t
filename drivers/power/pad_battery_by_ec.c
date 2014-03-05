@@ -45,6 +45,7 @@
 #include <linux/file.h>
 #include <linux/mm.h>
 #include <asm/uaccess.h>
+#include <linux/pm_runtime.h>
 
 #define GPIO_PIN_LOW_BATTERY_DETECT TEGRA_GPIO_PR4
 #define SMBUS_RETRY (0)
@@ -2397,11 +2398,18 @@ static int pad_battery_by_EC_probe(struct i2c_client *client,	const struct i2c_d
 
 static int pad_battery_by_EC_remove(struct i2c_client *client)
 {
+	pm_runtime_get_sync(&client->dev);
+
 	power_supply_unregister(&pad_battery->battery);
 	power_supply_unregister(&pad_battery->ac);
 	power_supply_unregister(&pad_battery->usb);
 	power_supply_unregister(&pad_battery->dock_battery);
 	power_supply_unregister(&pad_battery->dock_ac);
+
+	pm_runtime_disable(&client->dev);
+	pm_runtime_set_suspended(&client->dev);
+	pm_runtime_put_noidle(&client->dev);
+
 	wake_lock_destroy(&pad_battery->low_low_battery.low_low_battery_wake_lock);
 	wake_lock_destroy(&pad_battery->cable_type.cable_type_change_event_wake_lock);
 	wake_lock_destroy(&pad_battery->gaugeIC_updating);
@@ -2414,7 +2422,7 @@ static int pad_battery_by_EC_remove(struct i2c_client *client)
 }
 
 #if defined (CONFIG_PM)
-static int pad_battery_by_EC_suspend(struct i2c_client *client, pm_message_t state)
+static int pad_battery_by_EC_suspend(struct i2c_client *client)
 {
 	printk("pad battery by EC suspend+\n");
 	cancel_delayed_work_sync(&pad_battery->battery_status_polling_work);
@@ -2446,8 +2454,8 @@ static int pad_battery_by_EC_resume(struct i2c_client *client)
 
 
 static const struct dev_pm_ops pad_battery_by_EC_pm_ops = {
-	.suspend = pad_battery_by_EC_suspend,
-	.resume = pad_battery_by_EC_resume,
+	.runtime_suspend = pad_battery_by_EC_suspend,
+	.runtime_resume = pad_battery_by_EC_resume,
 };
 
 static const struct i2c_device_id pad_battery_by_EC_id[] = {
